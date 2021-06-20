@@ -1,9 +1,14 @@
 module Main where
 
 import Prelude
+
+import Data.Either (Either(..))
 import Effect (Effect)
-import Effect.Console (log)
+import Effect.Console (error, log)
+import Reader (readStr)
+import Printer (printStr)
 import Readline (readLine)
+import Types (MalExpr)
 
 
 
@@ -11,28 +16,42 @@ main :: Effect Unit
 main = loop
 
 
-loop :: Effect Unit
-loop = do
-  line <- readLine "λ "
-  case line of
-    ":q" -> pure unit
-    ":Q" -> pure unit
-    _ -> do
-      log line
-      loop
+
+-- READ
+
+read :: String -> Either String MalExpr
+read = readStr
 
 
-read :: String -> String
-read s = s
 
+-- EVAL
 
-eval :: String -> String
+eval :: MalExpr -> MalExpr
 eval s = s
 
 
-print :: String -> String
-print s = s
+
+-- PRINT
+
+print :: MalExpr -> Effect String
+print = printStr
 
 
-rep :: String -> String
-rep = read >>> eval >>> print
+
+-- REPL
+
+rep :: String -> Effect Unit
+rep str = case read str of
+  Left _  -> error "EOF"
+  Right s -> eval s # print >>= log
+
+
+loop :: Effect Unit
+loop = do
+  line <- readLine "user> "
+  case line of
+    ":q" -> pure unit
+    ":Q" -> pure unit
+    _    -> do
+      rep line
+      loop

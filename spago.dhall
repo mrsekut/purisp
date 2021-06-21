@@ -20,7 +20,6 @@ to generate this file without the comments in this block.
   , "exceptions"
   , "foldable-traversable"
   , "integers"
-  , "lazy"
   , "lists"
   , "maybe"
   , "ordered-collections"
@@ -29,6 +28,7 @@ to generate this file without the comments in this block.
   , "psci-support"
   , "refs"
   , "strings"
+  , "transformers"
   , "tuples"
   ]
 , packages = ./packages.dhall

@@ -2,49 +2,50 @@ module Main where
 
 import Prelude
 
+import Control.Monad.Error.Class (try)
 import Data.Either (Either(..))
 import Data.List (List(..), (:))
-import Data.Map (Map, lookup)
-import Data.Map as Map
+import Data.Map (Map)
 import Data.Maybe (Maybe(..))
 import Data.Traversable (traverse)
-import Data.Tuple (Tuple(..))
 import Effect (Effect)
 import Effect.Console (error, log)
-import Effect.Exception (throw, try)
-import Reader (readStr)
+import Effect.Exception (throw)
+import Env as Env
 import Printer (printStr)
+import Reader (readStr)
 import Readline (readLine)
-import Types (MalExpr(..), MalFn, toHashMap, toList, toVector)
+import Types (MalExpr(..), MalFn, RefEnv, toHashMap, toVector)
 
 
 
 main :: Effect Unit
-main = loop
+main = do
+  re <- Env.newEnv Nil
+  setArithOp re
+  loop re
 
 
 
 -- Repl
 
-rep :: String -> Effect Unit
-rep str = case read str of
-  Left _ -> error "EOF"
-  Right ast -> do
-    result <- try $ eval replEnv ast
-    case result of
-      Right exp -> print exp >>= log
-      Left err  -> error $ show err
+rep :: RefEnv -> String -> Effect String
+rep env str = case read str of
+  Right ast -> print =<< eval env ast
+  Left _    -> throw "EOF"
 
 
-loop :: Effect Unit
-loop = do
+loop :: RefEnv -> Effect Unit
+loop env = do
   line <- readLine "user> "
   case line of
     ":q" -> pure unit
-    ":Q" -> pure unit
     _    -> do
-      rep line
-      loop
+      result <- try $ rep env line
+      case result of
+        Right exp -> log exp
+        Left err  -> error $ show err
+      loop env
 
 
 
@@ -64,24 +65,57 @@ print = printStr
 
 -- Eval
 
-eval :: ReplEnv -> MalExpr -> Effect MalExpr
-eval _ ast@(MalList _ Nil)  = pure ast
-eval env (MalList _ ast)    = do
-  es <- traverse (evalAst env) ast
-  case es of
-    (MalFunction {fn:f}: args) -> f args
-    _                          -> pure $ toList es
-eval env ast                = evalAst env ast
+eval :: RefEnv -> MalExpr -> Effect MalExpr
+eval _ ast@(MalList _ Nil) = pure ast
+eval env (MalList _ ast)   = case ast of
+  MalSymbol "def!" : es -> evalDef env es
+  MalSymbol "let*" : es -> evalLet env es
+  _                     -> do
+    es <- traverse (evalAst env) ast
+    case es of
+      MalFunction {fn:f} : args -> f args
+      _                         -> throw "invalid function"
+eval env ast               = evalAst env ast
 
 
-evalAst :: ReplEnv -> MalExpr -> Effect MalExpr
-evalAst env (MalSymbol s)      = case lookup s env of
-  Just f  -> pure f
-  Nothing -> throw "invalid function"
-evalAst env ast@(MalList _ _ ) = eval env ast
-evalAst env (MalVector _ es)   = toVector <$> traverse (eval env) es
-evalAst env (MalHashMap _ es)  = toHashMap <$> traverse (eval env) es
-evalAst _ ast                  = pure ast
+evalAst :: RefEnv -> MalExpr -> Effect MalExpr
+evalAst env (MalSymbol s)       = do
+  result <- Env.get env s
+  case result of
+    Just k  -> pure k
+    Nothing -> throw $ "'" <> s <> "'" <> " not found"
+evalAst env ast@(MalList _ _)   = eval env ast
+evalAst env (MalVector _ envs)  = toVector <$> traverse (eval env) envs
+evalAst env (MalHashMap _ envs) = toHashMap <$> traverse (eval env) envs
+evalAst _ ast                   = pure ast
+
+
+evalDef :: RefEnv -> List MalExpr -> Effect MalExpr
+evalDef env (MalSymbol v : e : Nil) = do
+  evd <- evalAst env e
+  Env.set env v evd
+  pure evd
+evalDef _ _                         = throw "invalid def!"
+
+
+evalLet :: RefEnv -> List MalExpr -> Effect MalExpr
+evalLet env (MalList _ ps : e : Nil)   = do
+  letEnv <- Env.newEnv env
+  letBind letEnv ps
+  evalAst letEnv e
+evalLet env (MalVector _ ps : e : Nil) = do
+  letEnv <- Env.newEnv env
+  letBind letEnv ps
+  evalAst letEnv e
+evalLet _ _                            = throw "invalid let*"
+
+
+letBind :: RefEnv -> List MalExpr -> Effect Unit
+letBind _ Nil                       = pure unit
+letBind env (MalSymbol ky : e : es) = do
+  Env.set env ky =<< evalAst env e
+  letBind env es
+letBind _ _                         = throw "invalid let*"
 
 
 
@@ -89,13 +123,13 @@ evalAst _ ast                  = pure ast
 
 type ReplEnv = Map String MalExpr
 
-replEnv :: ReplEnv
-replEnv = Map.fromFoldable
-  [ Tuple "+" $ fn (+)
-  , Tuple "-" $ fn (-)
-  , Tuple "*" $ fn (*)
-  , Tuple "/" $ fn (/)
-  ]
+setArithOp :: RefEnv -> Effect Unit
+setArithOp env = do
+  Env.set env "+" $ fn (+)
+  Env.set env "-" $ fn (-)
+  Env.set env "*" $ fn (*)
+  Env.set env "/" $ fn (/)
+
 
 fn :: (Int -> Int -> Int) -> MalExpr
 fn op = MalFunction $ { fn : g op, params:Nil, macro:false, meta:MalNil }

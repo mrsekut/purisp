@@ -7,3 +7,5 @@ exports.readLine = function (x) {
     return readlineSync.question(x)
   }
 }
+
+exports.argv = process.argv;

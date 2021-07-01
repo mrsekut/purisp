@@ -3,7 +3,7 @@ module Main where
 import Prelude
 
 import Control.Monad.Error.Class (try)
-import Core as Core
+import Core.Core as Core
 import Data.Either (Either(..))
 import Data.List (List(..), foldM, (:))
 import Data.Maybe (Maybe(..))

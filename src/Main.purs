@@ -15,17 +15,27 @@ import Effect.Exception (throw)
 import Env as Env
 import Reader (readStr)
 import Printer (printStr)
-import Readline (readLine)
-import Types (MalExpr(..), MalFn, RefEnv, toHashMap, toVector)
+import Readline (args, readLine)
+import Types (MalExpr(..), MalFn, RefEnv, toHashMap, toList, toVector)
 
 
 
 main :: Effect Unit
 main = do
-  re <- Env.newEnv Nil
-  traverse (setFn re) Core.ns
-    *> rep re "(def! not (fn* (a) (if a false true)))"
-    *> loop re
+  let as = args
+  env <- Env.newEnv Nil
+  traverse (setFn env) Core.ns
+    *> setFn env (Tuple "eval" $ setEval env)
+    *> rep env "(def! not (fn* (a) (if a false true)))"
+    *> rep env "(def! load-file (fn* (f) (eval (read-string (str \"(do \" (slurp f) \"\nnil)\")))))"
+    *> case as of
+      Nil         -> do
+        Env.set env "*ARGV*" $ toList Nil
+        loop env
+      script:args -> do
+        Env.set env "*ARGV*" $ toList $ MalString <$> args
+        rep env $ "(load-file \"" <> script <> "\")"
+        *> pure unit
 
 
 
@@ -51,7 +61,13 @@ loop env = do
 
 
 setFn :: RefEnv -> Tuple String MalFn -> Effect Unit
-setFn env (Tuple sym f) = Env.set env sym $ MalFunction { fn:f, params:Nil, macro:false, meta:MalNil }
+setFn env (Tuple sym f) =
+  Env.set env sym $ MalFunction { fn:f, params:Nil, macro:false, meta:MalNil }
+
+
+setEval :: RefEnv -> MalFn
+setEval env (ast:Nil) = eval env ast
+setEval _ _           = throw "illegal call of eval"
 
 
 
@@ -156,7 +172,11 @@ evalFnMatch _ _                                   = throw "invalid fn*"
 evalFn :: RefEnv -> List MalExpr -> MalExpr -> Effect MalExpr
 evalFn env params body = do
   paramsStr <- traverse unwrapSymbol params
-  pure $ MalFunction { fn : fn paramsStr body, params:paramsStr, macro:false, meta:MalNil }
+  pure $ MalFunction { fn     : fn paramsStr body
+                     , params : paramsStr
+                     , macro  : false
+                     , meta   : MalNil
+                     }
   where
 
   fn :: List String -> MalExpr -> MalFn

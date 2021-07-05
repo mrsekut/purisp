@@ -15,15 +15,20 @@ import Types (MalExpr(..), MalFn, RefEnv, foldrM, toHashMap, toList, toVector)
 eval :: RefEnv -> MalExpr -> Effect MalExpr
 eval _ ast@(MalList _ Nil) = pure ast
 eval env (MalList _ ast)   = case ast of
-  MalSymbol "def!" : es              -> evalDef env es
-  MalSymbol "let*" : es              -> evalLet env es
-  MalSymbol "if" : es                -> evalIf env es >>= eval env
-  MalSymbol "do" : es                -> evalDo env es
-  MalSymbol "fn*" : es               -> evalFnMatch env es
-  MalSymbol "quote" : es             -> evalQuote env es
-  MalSymbol "quasiquote" : es        -> evalQuasiquote env es
-  MalSymbol "quasiquoteexpand" : es  -> evalQuasiquoteexpand es
-  _                     -> do
+  MalSymbol "def!" : es             -> evalDef env es
+  MalSymbol "let*" : es             -> evalLet env es
+  MalSymbol "if" : es               -> evalIf env es >>= eval env
+  MalSymbol "do" : es               -> evalDo env es
+  MalSymbol "fn*" : es              -> evalFnMatch env es
+
+  MalSymbol "quote" : es            -> evalQuote env es
+  MalSymbol "quasiquote" : es       -> evalQuasiquote env es
+  MalSymbol "quasiquoteexpand" : es -> evalQuasiquoteexpand es
+
+  MalSymbol "defmacro!" : es        -> evalDefmacro env es
+  MalSymbol "macroexpand" : es      -> evalMacroexpand env es
+
+  _                                 -> do
     es <- traverse (evalAst env) ast
     case es of
       MalFunction {fn:f} : args -> f args
@@ -171,3 +176,32 @@ qqIter (MalList _ (MalSymbol "splice-unquote" : _)) _         = throw "invalid s
 qqIter elt acc                                                = do
   qqted <- quasiquote elt
   pure $ toList $ MalSymbol "cons" : qqted : acc : Nil
+
+
+
+-- MACRO
+
+evalDefmacro :: RefEnv -> List MalExpr -> Effect MalExpr
+evalDefmacro env (MalSymbol mn : b : Nil) = do
+  f <- evalAst env b
+  case f of
+    MalFunction fn@{macro:false} -> do
+      let mc = MalFunction $ fn {macro = true}
+      Env.set env mn mc
+      pure mc
+    _                            -> throw "defmacro! on non-function"
+evalDefmacro _ _                          = throw "invalid defmacro!"
+
+
+evalMacroexpand :: RefEnv -> List MalExpr -> Effect MalExpr
+evalMacroexpand env (mc:Nil) = macroexpand env mc
+evalMacroexpand _ _          = throw "invalid macroexpand"
+
+
+macroexpand :: RefEnv -> MalExpr -> Effect MalExpr
+macroexpand env ast@(MalList _ (MalSymbol mc : args)) = do
+  maybeMacro <- Env.get env mc
+  case maybeMacro of
+    Just (MalFunction {fn:f, macro:true}) -> macroexpand env =<< f args
+    _                                     -> pure ast
+macroexpand _ ast                                     = pure ast

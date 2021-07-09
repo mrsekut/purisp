@@ -2,11 +2,13 @@ module Eval (eval) where
 
 import Prelude
 
+import Control.Monad.Error.Class (try)
+import Data.Either (Either(..))
 import Data.List (List(..), foldM, (:))
 import Data.Maybe (Maybe(..))
 import Data.Traversable (traverse)
 import Effect (Effect)
-import Effect.Exception (throw)
+import Effect.Exception (message, throw)
 import Env as Env
 import Types (MalExpr(..), MalFn, RefEnv, foldrM, toHashMap, toList, toVector)
 
@@ -27,6 +29,8 @@ eval env (MalList _ ast)   = case ast of
 
   MalSymbol "defmacro!" : es        -> evalDefmacro env es
   MalSymbol "macroexpand" : es      -> evalMacroexpand env es
+
+  MalSymbol "try*" : es             -> evalTry env es
 
   _                                 -> do
     es <- traverse (evalAst env) ast
@@ -205,3 +209,19 @@ macroexpand env ast@(MalList _ (MalSymbol mc : args)) = do
     Just (MalFunction {fn:f, macro:true}) -> macroexpand env =<< f args
     _                                     -> pure ast
 macroexpand _ ast                                     = pure ast
+
+
+
+-- Try
+
+evalTry :: RefEnv -> List MalExpr -> Effect MalExpr
+evalTry env (a:Nil) = evalAst env a
+evalTry env (thw : MalList _ (MalSymbol "catch*" : MalSymbol e : b : Nil) : Nil) = do
+  res <- try $ evalAst env thw
+  case res of
+    Left err -> do
+      tryEnv <- Env.newEnv env
+      Env.set tryEnv e $ MalString $ message err -- FIXME:
+      evalAst tryEnv b
+    Right v -> pure v
+evalTry _ _         = throw "invalid try*"

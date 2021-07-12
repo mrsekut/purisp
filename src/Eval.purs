@@ -1,4 +1,4 @@
-module Eval (eval) where
+module Eval (eval, evalAst) where
 
 import Prelude
 
@@ -41,15 +41,18 @@ eval env ast               = evalAst env ast
 
 
 evalAst :: RefEnv -> MalExpr -> Effect MalExpr
-evalAst env (MalSymbol s)       = do
-  result <- Env.get env s
-  case result of
-    Just k  -> pure k
-    Nothing -> throw $ "'" <> s <> "'" <> " not found"
-evalAst env ast@(MalList _ _)   = eval env ast
-evalAst env (MalVector _ envs)  = toVector <$> traverse (eval env) envs
-evalAst env (MalHashMap _ envs) = toHashMap <$> traverse (eval env) envs
-evalAst _ ast                   = pure ast
+evalAst env ast = do
+  newAst <- macroexpand env ast
+  case newAst of
+    MalSymbol s   -> do
+      result <- Env.get env s
+      case result of
+        Just k  -> pure k
+        Nothing -> throw $ "'" <> s <> "'" <> " not found"
+    l@(MalList _ _ ) -> eval env l
+    MalVector _ es   -> toVector <$> traverse (evalAst env) es
+    MalHashMap _ es  -> toHashMap <$> traverse (evalAst env) es
+    _                -> pure newAst
 
 
 

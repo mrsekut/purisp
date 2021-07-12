@@ -3,7 +3,6 @@ module Core.String where
 import Prelude
 
 import Data.DateTime.Instant (unInstant)
-import Data.Either (Either(..))
 import Data.Int (round)
 import Data.List (List(..), (:))
 import Data.String (take)
@@ -58,9 +57,7 @@ readline' _                        = throw "invalid arguments to readline"
 
 
 readString :: MalFn
-readString (MalString s : Nil) = case readStr s of
-  Left _    -> throw "invalid read-string"
-  Right val -> pure val
+readString (MalString s : Nil) = readStr s
 readString _                   = throw "invalid read-string"
 
 

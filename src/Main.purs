@@ -5,8 +5,8 @@ import Prelude
 import Control.Monad.Error.Class (try)
 import Core.Core as Core
 import Data.Either (Either(..))
+import Data.Foldable (traverse_)
 import Data.List (List(..), (:))
-import Data.Traversable (traverse)
 import Data.Tuple (Tuple(..))
 import Effect (Effect)
 import Effect.Console (error, log)
@@ -23,24 +23,27 @@ import Types (MalExpr(..), MalFn, RefEnv, toList)
 main :: Effect Unit
 main = do
   env <- Env.newEnv Nil
-  traverse (setFn env) Core.ns
-    *> setFn env (Tuple "eval" $ setEval env)
-    *> rep env "(def! not (fn* (a) (if a false true)))"
-    *> rep env "(def! load-file (fn* (f) (eval (read-string (str \"(do \" (slurp f) \"\nnil)\")))))"
-    *> rep env "(defmacro! cond (fn* (& xs) (if (> (count xs) 0) (list 'if (first xs) (if (> (count xs) 1) (nth xs 1) (throw \"odd number of forms to cond\")) (cons 'cond (rest (rest xs)))))))"
-    *> case args of
-      Nil               -> do
-        Env.set env "*ARGV*" $ toList Nil
-        -- rep env "(println (str \"Mal [\" *host-language* \"]\"))"
-        *> loop env
-      script:scriptArgs -> do
-        Env.set env "*ARGV*" $ toList $ MalString <$> scriptArgs
-        rep env $ "(load-file \"" <> script <> "\")"
-        *> pure unit
+  traverse_ (setFn env) Core.ns
+  setFn env (Tuple "eval" $ setEval env)
+  rep_ env "(def! not (fn* (a) (if a false true)))"
+  rep_ env "(def! load-file (fn* (f) (eval (read-string (str \"(do \" (slurp f) \"\nnil)\")))))"
+  rep_ env "(defmacro! cond (fn* (& xs) (if (> (count xs) 0) (list 'if (first xs) (if (> (count xs) 1) (nth xs 1) (throw \"odd number of forms to cond\")) (cons 'cond (rest (rest xs)))))))"
+  case args of
+    Nil               -> do
+      Env.set env "*ARGV*" $ toList Nil
+      -- rep env "(println (str \"Mal [\" *host-language* \"]\"))"
+      loop env
+    script:scriptArgs -> do
+      Env.set env "*ARGV*" $ toList $ MalString <$> scriptArgs
+      rep_ env $ "(load-file \"" <> script <> "\")"
 
 
 
 -- Repl
+
+rep_ :: RefEnv -> String -> Effect Unit
+rep_ env str = void $ rep env str
+
 
 rep :: RefEnv -> String -> Effect String
 rep env str = print =<< evalAst env =<< read str

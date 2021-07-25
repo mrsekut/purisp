@@ -1,6 +1,7 @@
-{ name = "my-project"
+{ name = "purisp"
 , dependencies =
-  [ "arrays"
+  [ "aff"
+  , "arrays"
   , "console"
   , "control"
   , "datetime"
@@ -19,6 +20,7 @@
   , "prelude"
   , "psci-support"
   , "refs"
+  , "spec"
   , "strings"
   , "transformers"
   , "tuples"
